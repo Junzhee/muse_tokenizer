@@ -25,6 +25,12 @@ import base64
 import os
 # from tqdm.notebook import tqdm, trange
 from torch.utils.data.distributed import DistributedSampler
+import time
+
+import random
+
+
+os.environ['NCCL_DEBUG'] = 'INFO'
 
 
 class CustomImageDataset(Dataset):
@@ -42,26 +48,28 @@ class CustomImageDataset(Dataset):
         if self.transform:
             image = self.transform(image)
 
-
         return image
-
-
-import random
 
 
 def setup(rank, world_size):
     """
     Setup for distributed computing.
     """
+    # Print the current rank:
+    print(f"Setup on rank {rank}.")
+
     random_number = random.randint(0, 66666)
 
     # Converting the number to a string
     number_as_string = str(random_number)
     os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = number_as_string
+    # os.environ['MASTER_PORT'] = number_as_string
+    os.environ['MASTER_PORT'] = '12345'
 
     # initialize the process group
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
+
+    print(f"Setup finish on rank {rank}.")
 
 def cleanup():
     """
@@ -79,7 +87,7 @@ def main(rank, world_size):
     # Set up argument parser
     parser = argparse.ArgumentParser(description='Tokenize the Dataset')
     parser.add_argument('--dataset_path', type=str, default='/home/niudt/dataset/laion4m', help='path of the laion 2b', required=False)
-    parser.add_argument('--save_file', type=str, default='./test_tokenizer.jsonl', help='Name of the save folder', required=False)
+    parser.add_argument('--save_file', type=str, default='./output_dir', help='Name of the save folder', required=False)
     parser.add_argument('--batch_size', type=int, default=128, help='support 256 for 80G A100', required=False)
     parser.add_argument('--ckpt_path', type=str, default="./ckpt/laion", help='path of the vqgan ckpt', required=False)
     args = parser.parse_args()
@@ -108,7 +116,9 @@ def main(rank, world_size):
                 continue
             image_path = os.path.join(path, item)
             image_list.append(image_path)
-
+   
+    # image_list = image_list[:10000]
+    print(f"Total {len(image_list)} images...")
 
     transform = transforms.Compose(
         [transforms.Resize(256, interpolation=transforms.InterpolationMode.BILINEAR),
@@ -116,29 +126,43 @@ def main(rank, world_size):
             transforms.ToTensor(),]
     )
 
-
     dataset = CustomImageDataset(image_list, transform=transform)
     sampler = DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle=False)
-    dataloader = DataLoader(dataset, batch_size=batch_size, sampler=sampler)
+    dataloader = DataLoader(dataset, 
+                            batch_size=batch_size, 
+                            sampler=sampler, 
+                            num_workers=1,
+                            shuffle=False,
+                            pin_memory=True,
+                            prefetch_factor=2)
+
+    start_time = time.time()
+ 
+    for batch_index, batch in enumerate(tqdm(dataloader)):
+        data_list = []  # Initialize a list for the current batch
+
+        x = batch
+        x = x.to(net.device)
+        with torch.no_grad():
+            _, tokens = net.module.encode(x)
 
 
-    # Example loop to fetch and process batches of images
-    with open(work_root, 'w') as fout:
-        for batch in tqdm(dataloader):
-            # Process your batch of images here
-            x = batch
-            x = x.to(net.device)
-            with torch.no_grad():
-                _, tokens = net.module.encode(x)
+            tokens_save = einops.rearrange(
+                tokens.cpu().numpy().astype(np.int32), '(b t) d -> b (t d)', b=tokens.size(0)
+            )
+            for i in range(x.size(0)):
+                data = {'tokens': b64encode(tokens_save[i].tobytes()).decode('utf-8')}
+                data_list.append(json.dumps(data))
 
-                tokens_save = einops.rearrange(
-        tokens.cpu().numpy().astype(np.int32), '(b t) d -> b (t d)', b=tokens.size(0)
-        )
-                for i in range(x.size(0)):
-                    data = {'tokens': b64encode(tokens_save[i].tobytes()).decode('utf-8')}
-                    fout.write(json.dumps(data) + '\n')
+        json_file_path = f"{work_root}/output_{rank}.json"
 
-
+        # Determine the mode in which to open the file ('w' for the first batch, 'a' for subsequent batches)
+        mode = 'w' if batch_index == 0 else 'a'
+        with open(json_file_path, mode) as fout:
+            for data in data_list:
+                fout.write(data + '\n')
+    
+    print(f"Time taken: {time.time() - start_time} seconds.")
 
 if __name__ == "__main__":
     world_size = torch.cuda.device_count()  # Number of available GPUs
