@@ -139,3 +139,7 @@ test_dir/
 
 # model
 ckpt/
+
+# output file
+test_tokenizer.jsonl
+output_dir/
