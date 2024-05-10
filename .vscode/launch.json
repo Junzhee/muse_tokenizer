@@ -1,0 +1,19 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Tokenize Images",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/tokenize_images.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--dataset_path", "/home/data2/lychen/data/vl/gqa"
+            ],
+            "env": {
+                "CUDA_VISIBLE_DEVICES": "1,2"
+            },
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}
