@@ -50,6 +50,46 @@ class CustomImageDataset(Dataset):
 
         return image
 
+# def get_dataset(dataset_type, path, s3):
+#     if s3:
+#         path = f"pipe:aws s3 cp {path} -"
+
+#     if dataset_type == "laion":
+#         dataset = (
+#             wds.WebDataset(path)
+#             .decode(wds.imagehandler("torchrgb"))
+#             .to_tuple("jpg", "json")
+#         )
+#         dataset = dataset.map(remove_keys)
+
+#         return dataset
+#     elif dataset_type == "datacomp":
+#         dataset = (
+#             wds.WebDataset(path)
+#             .decode(wds.imagehandler("torchrgb"))
+#             .to_tuple("jpg;png;webp", "json", "__key__", "__url__")
+#         )
+#         dataset = dataset.map(transform_and_remove_keys)
+
+#         return dataset
+#     elif dataset_type == "mmc4":
+
+#         def resize_image(sample):
+#             keys = ["png", "jpg", "jpeg"]
+#             for key in keys:
+#                 if key in sample:
+#                     image = np.array(sample[key].resize((256, 256))).astype(np.float32)
+#                     image = image.transpose(2, 0, 1) / 255.0
+#                     sample["image"] = torch.from_numpy(image)
+#             return sample
+
+#         dataset = (
+#             wds.WebDataset(path)
+#             .decode("pil")
+#             .map(resize_image)
+#             .to_tuple("image", "__key__")
+#         )
+#         return dataset
 
 def setup(rank, world_size):
     """

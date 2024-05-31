@@ -143,3 +143,10 @@ ckpt/
 # output file
 test_tokenizer.jsonl
 output_dir/
+error_logs/
+logs/
+data/
+ckpt.tar.gz
+*.ckpt
+*.swp
+*._ckpt
